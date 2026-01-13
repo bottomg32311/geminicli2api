@@ -209,6 +209,16 @@ async def openai_chat_completions(
                 gemini_response = json.loads(response.body)
                 openai_response = gemini_response_to_openai(gemini_response, request.model)
                 
+                # --- BAZOOKA FIX START ---
+                # Lorecard crashes if "usage" is missing. We force it here.
+                if isinstance(openai_response, dict):
+                    openai_response["usage"] = {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0
+                    }
+                # --- BAZOOKA FIX END ---
+
                 logging.info(f"Successfully processed non-streaming response for model: {request.model}")
                 return openai_response
                 
