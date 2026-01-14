@@ -211,21 +211,13 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         
         parts = candidate.get("content", {}).get("parts", [])
         
-        # --- FIXED INDENTATION & LOGIC START ---
         content_parts = []
         reasoning_content = ""
 
         for part in parts:
-            # 1. HANDLE TEXT (With JSON/Bazooka Fix)
+            # 1. HANDLE TEXT
             if part.get("text") is not None:
                 text = part.get("text")
-                
-                # If Lorecard asks for JSON, strip the conversational chatter
-                if "{" in text and "}" in text:
-                    match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
-                    if match:
-                        text = match.group(0)
-                
                 content_parts.append(text)
 
             # 2. HANDLE IMAGES (Inline Data)
@@ -235,9 +227,28 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
                 if isinstance(mime, str) and mime.startswith("image"):
                     data_b64 = inline.get("data")
                     content_parts.append(f"![image](data:{mime};base64,{data_b64})")
-        # --- FIXED INDENTATION & LOGIC END ---
 
+        # Combine all parts into one big string
         content = "\n\n".join([p for p in content_parts if p is not None])
+        
+        # --- FINAL POLISH CLEANER ---
+        # This logic runs on the FINAL string. It chops off any "Thinking" preamble.
+        # It looks for the FIRST '{' and the LAST '}'. Everything outside is deleted.
+        if "{" in content and "}" in content:
+            # First, check if there is a proper Markdown Code Block (safest)
+            # i.e. ```json { ... } ```
+            import re
+            json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+            if json_block:
+                content = json_block.group(1)
+            else:
+                # Fallback: Just grab everything between the first { and last }
+                # This removes the "Processing the Prompt..." text.
+                start_index = content.find('{')
+                end_index = content.rfind('}') + 1
+                if start_index != -1 and end_index != -1:
+                    content = content[start_index:end_index]
+        # ---------------------------
         
         message = {
             "role": role,
