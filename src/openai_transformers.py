@@ -272,32 +272,28 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         reasoning_content = ""
         
         for part in parts:
-        # Text parts (may include thinking content)
-                if part.get("text") is not None:
-                        text = part.get("text")
+        for part in parts:
+        # --- 1. HANDLE TEXT (With Bazooka Fix) ---
+        if part.get("text") is not None:
+            text = part.get("text")
             
-            # --- BAZOOKA FIX ---
-                        if "{" in text and "}" in text:
-                                import re
-                                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
-                                if match:
-                                        text = match.group(0)
-                        # -------------------
+            # Clean JSON if hidden in text
+            if "{" in text and "}" in text:
+                import re
+                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+                if match:
+                    text = match.group(0)
             
-                        content_parts.append(text)
-                if part.get("thought", False):
-                    reasoning_content += part.get("text", "")
-                else:
-                    content_parts.append(part.get("text", ""))
-                continue
+            content_parts.append(text)
 
-            # Inline image data -> embed as Markdown data URI
-                inline = part.get("inlineData")
-            if inline and inline.get("data"):
-                mime = inline.get("mimeType") or "image/png"
-                if isinstance(mime, str) and mime.startswith("image/"):
-                    data_b64 = inline.get("data")
-                    content_parts.append(f"![image](data:{mime};base64,{data_b64})")
+        # --- 2. HANDLE IMAGES (Inline Data) ---
+        inline = part.get("inlineData")
+        if inline and inline.get("data"):
+            mime = inline.get("mimeType") or "image/png"
+            if isinstance(mime, str) and mime.startswith("image"):
+                data_b64 = inline.get("data")
+                # Format for OpenAI: ![image](data:image/png;base64,...)
+                content_parts.append(f"![image](data:{mime};base64,{data_b64})")
                 continue
 
         content = "\n\n".join([p for p in content_parts if p is not None])
