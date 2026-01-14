@@ -273,6 +273,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         
         for part in parts:
         for part in parts:
+        # --- for part in parts:
         # --- 1. HANDLE TEXT (With Bazooka Fix) ---
         if part.get("text") is not None:
             text = part.get("text")
