@@ -278,9 +278,12 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
             
             # --- BAZOOKA JSON CLEANER START ---
             # If the response looks like it contains JSON, strip everything else
+            if part.get("text") is not None:
+            text = part.get("text")
+            
+            # --- BAZOOKA JSON CLEANER START ---
             if "{" in text and "}" in text:
                 import re
-                # Find the first { and last } and keep only what is between them
                 match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
                 if match:
                     text = match.group(0)
