@@ -272,13 +272,8 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         reasoning_content = ""
         
         for part in parts:
-            # Text parts (may include thinking tokens)
-            if part.get("text") is not None:
-            text = part.get("text")
-            
-            # --- BAZOOKA JSON CLEANER START ---
-            # If the response looks like it contains JSON, strip everything else
-            if part.get("text") is not None:
+        # Text parts (may include thinking content)
+        if part.get("text") is not None:
             text = part.get("text")
             
             # --- BAZOOKA JSON CLEANER START ---
