@@ -269,32 +269,29 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         # Extract and separate thinking tokens from regular content
         parts = candidate.get("content", {}).get("parts", [])
         content_parts = []
-        reasoning_content = ""
-        
-        for part in parts:
-        for part in parts:
-        # --- for part in parts:
-        # --- 1. HANDLE TEXT (With Bazooka Fix) ---
-        if part.get("text") is not None:
-            text = part.get("text")
-            
-            # Clean JSON if hidden in text
-            if "{" in text and "}" in text:
-                import re
-                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
-                if match:
-                    text = match.group(0)
-            
-            content_parts.append(text)
+            reasoning_content = ""
 
-        # --- 2. HANDLE IMAGES (Inline Data) ---
-        inline = part.get("inlineData")
-        if inline and inline.get("data"):
-            mime = inline.get("mimeType") or "image/png"
-            if isinstance(mime, str) and mime.startswith("image"):
-                data_b64 = inline.get("data")
-                # Format for OpenAI: ![image](data:image/png;base64,...)
-                content_parts.append(f"![image](data:{mime};base64,{data_b64})")
+            for part in parts:
+                # --- 1. HANDLE TEXT ---
+                if part.get("text") is not None:
+                    text = part.get("text")
+                    
+                    # Bazooka Fix
+                    if "{" in text and "}" in text:
+                        import re
+                        match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+                        if match:
+                            text = match.group(0)
+                    
+                    content_parts.append(text)
+
+                # --- 2. HANDLE IMAGES ---
+                inline = part.get("inlineData")
+                if inline and inline.get("data"):
+                    mime = inline.get("mimeType") or "image/png"
+                    if isinstance(mime, str) and mime.startswith("image"):
+                        data_b64 = inline.get("data")
+                        content_parts.append(f"![image](data:{mime};base64,{data_b64})")
                 continue
 
         content = "\n\n".join([p for p in content_parts if p is not None])
