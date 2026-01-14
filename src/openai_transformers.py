@@ -292,7 +292,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
                 continue
 
             # Inline image data -> embed as Markdown data URI
-            inline = part.get("inlineData")
+                inline = part.get("inlineData")
             if inline and inline.get("data"):
                 mime = inline.get("mimeType") or "image/png"
                 if isinstance(mime, str) and mime.startswith("image/"):
