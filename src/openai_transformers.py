@@ -276,14 +276,14 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         if part.get("text") is not None:
             text = part.get("text")
             
-            # --- BAZOOKA JSON CLEANER START ---
+            # --- BAZOOKA FIX ---
             if "{" in text and "}" in text:
                 import re
                 match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
                 if match:
                     text = match.group(0)
-            # --- BAZOOKA JSON CLEANER END ---
-            
+            # -------------------
+
             content_parts.append(text)
                 if part.get("thought", False):
                     reasoning_content += part.get("text", "")
