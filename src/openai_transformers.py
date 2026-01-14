@@ -273,18 +273,18 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         
         for part in parts:
         # Text parts (may include thinking content)
-        if part.get("text") is not None:
-            text = part.get("text")
+                if part.get("text") is not None:
+                        text = part.get("text")
             
             # --- BAZOOKA FIX ---
-            if "{" in text and "}" in text:
-                import re
-                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
-                if match:
-                    text = match.group(0)
-            # -------------------
-
-            content_parts.append(text)
+                        if "{" in text and "}" in text:
+                                import re
+                                match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+                                if match:
+                                        text = match.group(0)
+                        # -------------------
+            
+                        content_parts.append(text)
                 if part.get("thought", False):
                     reasoning_content += part.get("text", "")
                 else:
