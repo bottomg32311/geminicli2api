@@ -8,7 +8,7 @@ import uuid
 import re
 from typing import Dict, Any
 
-from .models import OpenAIChatCompletionRequest, OpenAIChatCompletionResponse
+from .models import OpenAIChatCompletionRequest
 from .config import (
     DEFAULT_SAFETY_SETTINGS,
     is_search_model,
@@ -18,7 +18,6 @@ from .config import (
     is_nothinking_model,
     is_maxthinking_model
 )
-
 
 def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dict[str, Any]:
     """
@@ -34,104 +33,29 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         if role == "assistant":
             role = "model"
         elif role == "system":
-            role = "user"  # Gemini treats system messages as user messages
+            role = "user"
         
-        # Handle different content types (string vs list of parts)
+        # --- TEXT ONLY MODE (Fixes "Invalid Image" Wiki Errors) ---
+        # We simply grab the text content. We DO NOT try to parse markdown images.
+        # This prevents 400 Errors when a Wiki page has a broken image link.
+        text_content = ""
+        
         if isinstance(message.content, list):
-            parts = []
+            # If it's a list of parts, join the text parts and IGNORE image_url parts
             for part in message.content:
                 if part.get("type") == "text":
-                    text_value = part.get("text", "") or ""
-                    # Extract Markdown images
-                    pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
-                    matches = list(pattern.finditer(text_value))
-                    if not matches:
-                        parts.append({"text": text_value})
-                    else:
-                        last_idx = 0
-                        for m in matches:
-                            url = m.group(1).strip().strip('"').strip("'")
-                            if m.start() > last_idx:
-                                before = text_value[last_idx:m.start()]
-                                if before:
-                                    parts.append({"text": before})
-                            if url.startswith("data:"):
-                                try:
-                                    header, base64_data = url.split(",", 1)
-                                    mime_type = ""
-                                    if ":" in header:
-                                        mime_type = header.split(":", 1)[1].split(";", 1)[0] or ""
-                                    if mime_type.startswith("image/"):
-                                        parts.append({
-                                            "inlineData": {
-                                                "mimeType": mime_type,
-                                                "data": base64_data
-                                            }
-                                        })
-                                    else:
-                                        parts.append({"text": text_value[m.start():m.end()]})
-                                except Exception:
-                                    parts.append({"text": text_value[m.start():m.end()]})
-                            else:
-                                parts.append({"text": text_value[m.start():m.end()]})
-                            last_idx = m.end()
-                        if last_idx < len(text_value):
-                            tail = text_value[last_idx:]
-                            if tail:
-                                parts.append({"text": tail})
-                elif part.get("type") == "image_url":
-                    image_url = part.get("image_url", {}).get("url")
-                    if image_url:
-                        try:
-                            mime_type, base64_data = image_url.split(";")
-                            _, mime_type = mime_type.split(":")
-                            _, base64_data = base64_data.split(",")
-                            parts.append({
-                                "inlineData": {
-                                    "mimeType": mime_type,
-                                    "data": base64_data
-                                }
-                            })
-                        except ValueError:
-                            continue
-            contents.append({"role": role, "parts": parts})
+                    text_content += part.get("text", "") or ""
+                # We intentionally skip 'image_url' here
         else:
-            # Simple text content
-            text = message.content or ""
-            parts = []
-            pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
-            last_idx = 0
-            for m in pattern.finditer(text):
-                url = m.group(1).strip().strip('"').strip("'")
-                if m.start() > last_idx:
-                    before = text[last_idx:m.start()]
-                    if before:
-                        parts.append({"text": before})
-                if url.startswith("data:"):
-                    try:
-                        header, base64_data = url.split(",", 1)
-                        mime_type = ""
-                        if ":" in header:
-                            mime_type = header.split(":", 1)[1].split(";", 1)[0] or ""
-                        if mime_type.startswith("image/"):
-                            parts.append({
-                                "inlineData": {
-                                    "mimeType": mime_type,
-                                    "data": base64_data
-                                }
-                            })
-                        else:
-                            parts.append({"text": text[m.start():m.end()]})
-                    except Exception:
-                        parts.append({"text": text[m.start():m.end()]})
-                else:
-                    parts.append({"text": text[m.start():m.end()]})
-                last_idx = m.end()
-            if last_idx < len(text):
-                tail = text[last_idx:]
-                if tail:
-                    parts.append({"text": tail})
-            contents.append({"role": role, "parts": parts if parts else [{"text": text}]})
+            # If it's a string, just use it
+            text_content = message.content or ""
+            
+        # Add to contents as pure text
+        contents.append({
+            "role": role, 
+            "parts": [{"text": text_content}]
+        })
+        # ---------------------------------------------------------
     
     # Map OpenAI generation parameters
     generation_config = {}
@@ -215,7 +139,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         reasoning_content = ""
 
         for part in parts:
-            # 1. HANDLE TEXT
+            # 1. HANDLE TEXT (With JSON/Bazooka Fix)
             if part.get("text") is not None:
                 text = part.get("text")
                 content_parts.append(text)
@@ -228,22 +152,15 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
                     data_b64 = inline.get("data")
                     content_parts.append(f"![image](data:{mime};base64,{data_b64})")
 
-        # Combine all parts into one big string
         content = "\n\n".join([p for p in content_parts if p is not None])
         
         # --- FINAL POLISH CLEANER ---
-        # This logic runs on the FINAL string. It chops off any "Thinking" preamble.
-        # It looks for the FIRST '{' and the LAST '}'. Everything outside is deleted.
         if "{" in content and "}" in content:
-            # First, check if there is a proper Markdown Code Block (safest)
-            # i.e. ```json { ... } ```
             import re
             json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
             if json_block:
                 content = json_block.group(1)
             else:
-                # Fallback: Just grab everything between the first { and last }
-                # This removes the "Processing the Prompt..." text.
                 start_index = content.find('{')
                 end_index = content.rfind('}') + 1
                 if start_index != -1 and end_index != -1:
