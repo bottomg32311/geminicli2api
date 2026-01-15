@@ -19,6 +19,10 @@ from .config import (
     is_maxthinking_model
 )
 
+# --- SMART FILTER SETTINGS ---
+# Only allow these reliable image types. Block SVGs, Icons, and GIFs to prevent crashes.
+ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic"]
+
 def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dict[str, Any]:
     """
     Transform an OpenAI chat completion request to Gemini format.
@@ -35,29 +39,118 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         elif role == "system":
             role = "user"
         
-        # --- TEXT ONLY MODE (Fixes "Invalid Image" Wiki Errors) ---
-        # We simply grab the text content. We DO NOT try to parse markdown images.
-        # This prevents 400 Errors when a Wiki page has a broken image link.
-        text_content = ""
-        
+        # Handle different content types
         if isinstance(message.content, list):
-            # If it's a list of parts, join the text parts and IGNORE image_url parts
+            parts = []
             for part in message.content:
                 if part.get("type") == "text":
-                    text_content += part.get("text", "") or ""
-                # We intentionally skip 'image_url' here
+                    text_value = part.get("text", "") or ""
+                    # Extract Markdown images
+                    pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+                    matches = list(pattern.finditer(text_value))
+                    if not matches:
+                        parts.append({"text": text_value})
+                    else:
+                        last_idx = 0
+                        for m in matches:
+                            url = m.group(1).strip().strip('"').strip("'")
+                            if m.start() > last_idx:
+                                before = text_value[last_idx:m.start()]
+                                if before:
+                                    parts.append({"text": before})
+                            
+                            # --- SMART FILTER FOR MARKDOWN IMAGES ---
+                            if url.startswith("data:"):
+                                try:
+                                    header, base64_data = url.split(",", 1)
+                                    mime_type = ""
+                                    if ":" in header:
+                                        mime_type = header.split(":", 1)[1].split(";", 1)[0] or ""
+                                    
+                                    # ONLY allow VIP image types
+                                    if mime_type in ALLOWED_MIME_TYPES:
+                                        parts.append({
+                                            "inlineData": {
+                                                "mimeType": mime_type,
+                                                "data": base64_data
+                                            }
+                                        })
+                                    else:
+                                        # If it's a bad image (SVG/Icon), just keep the text description
+                                        parts.append({"text": f"[Image skipped: {mime_type}]"})
+                                except Exception:
+                                    parts.append({"text": "[Image parsing failed]"})
+                            else:
+                                # Normal URL: Keep as text (Gemini can't see it without downloading)
+                                parts.append({"text": text_value[m.start():m.end()]})
+                            last_idx = m.end()
+                        if last_idx < len(text_value):
+                            tail = text_value[last_idx:]
+                            if tail:
+                                parts.append({"text": tail})
+                
+                elif part.get("type") == "image_url":
+                    # --- SMART FILTER FOR IMAGE_URL OBJECTS ---
+                    image_url = part.get("image_url", {}).get("url")
+                    if image_url:
+                        try:
+                            if ";" in image_url and "," in image_url:
+                                mime_part, base64_data = image_url.split(",", 1)
+                                # mime_part looks like "data:image/jpeg;base64"
+                                mime_type = mime_part.split(":")[1].split(";")[0]
+                                
+                                if mime_type in ALLOWED_MIME_TYPES:
+                                    parts.append({
+                                        "inlineData": {
+                                            "mimeType": mime_type,
+                                            "data": base64_data
+                                        }
+                                    })
+                        except ValueError:
+                            continue
+            contents.append({"role": role, "parts": parts})
         else:
-            # If it's a string, just use it
-            text_content = message.content or ""
-            
-        # Add to contents as pure text
-        contents.append({
-            "role": role, 
-            "parts": [{"text": text_content}]
-        })
-        # ---------------------------------------------------------
+            # Simple text content (String)
+            text = message.content or ""
+            parts = []
+            pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+            last_idx = 0
+            for m in pattern.finditer(text):
+                url = m.group(1).strip().strip('"').strip("'")
+                if m.start() > last_idx:
+                    before = text[last_idx:m.start()]
+                    if before:
+                        parts.append({"text": before})
+                
+                # --- SMART FILTER FOR STRING MARKDOWN ---
+                if url.startswith("data:"):
+                    try:
+                        header, base64_data = url.split(",", 1)
+                        mime_type = ""
+                        if ":" in header:
+                            mime_type = header.split(":", 1)[1].split(";", 1)[0] or ""
+                        
+                        if mime_type in ALLOWED_MIME_TYPES:
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": base64_data
+                                }
+                            })
+                        else:
+                             parts.append({"text": f"[Image skipped: {mime_type}]"})
+                    except Exception:
+                        parts.append({"text": "[Image parsing failed]"})
+                else:
+                    parts.append({"text": text[m.start():m.end()]})
+                last_idx = m.end()
+            if last_idx < len(text):
+                tail = text[last_idx:]
+                if tail:
+                    parts.append({"text": tail})
+            contents.append({"role": role, "parts": parts if parts else [{"text": text}]})
     
-    # Map OpenAI generation parameters
+    # Map parameters
     generation_config = {}
     if openai_request.temperature is not None:
         generation_config["temperature"] = openai_request.temperature
@@ -82,7 +175,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         if openai_request.response_format.get("type") == "json_object":
             generation_config["responseMimeType"] = "application/json"
     
-    # Build the request payload
+    # Build payload
     request_payload = {
         "contents": contents,
         "generationConfig": generation_config,
@@ -93,6 +186,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
     if is_search_model(openai_request.model):
         request_payload["tools"] = [{"googleSearch": {}}]
     
+    # Thinking Config
     if "gemini-2.5-flash-image" not in openai_request.model:
         thinking_budget = None
         if is_nothinking_model(openai_request.model) or is_maxthinking_model(openai_request.model):
@@ -134,17 +228,16 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
             role = "assistant"
         
         parts = candidate.get("content", {}).get("parts", [])
-        
         content_parts = []
         reasoning_content = ""
 
         for part in parts:
-            # 1. HANDLE TEXT (With JSON/Bazooka Fix)
+            # 1. HANDLE TEXT
             if part.get("text") is not None:
                 text = part.get("text")
                 content_parts.append(text)
 
-            # 2. HANDLE IMAGES (Inline Data)
+            # 2. HANDLE IMAGES (Response)
             inline = part.get("inlineData")
             if inline and inline.get("data"):
                 mime = inline.get("mimeType") or "image/png"
@@ -154,7 +247,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
 
         content = "\n\n".join([p for p in content_parts if p is not None])
         
-        # --- FINAL POLISH CLEANER ---
+        # --- FINAL POLISH CLEANER (Chatter Stripper) ---
         if "{" in content and "}" in content:
             import re
             json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
@@ -187,7 +280,7 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
         "created": int(time.time()),
         "model": model,
         "choices": choices,
-        # --- BAZOOKA USAGE FIX (Prevents Lorecard Crash) ---
+        # --- BAZOOKA USAGE FIX ---
         "usage": {
             "prompt_tokens": 0,
             "completion_tokens": 0,
