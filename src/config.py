@@ -44,6 +44,19 @@ DEFAULT_SAFETY_SETTINGS = [
 # Base Models (without search variants)
 BASE_MODELS = [
     {
+        "name": "models/gemini-3.5-flash",
+        "version": "001",
+        "displayName": "Gemini 3.5 Flash",
+        "description": "High-efficiency multimodal model bringing near-Pro level coding and reasoning at Flash-tier speed",
+        "inputTokenLimit": 1048576,
+        "outputTokenLimit": 65536,
+        "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
+        "temperature": 1.0,
+        "maxTemperature": 2.0,
+        "topP": 0.95,
+        "topK": 64
+    },
+    {
         "name": "models/gemini-2.5-pro-preview-03-25",
         "version": "001",
         "displayName": "Gemini 2.5 Pro Preview 03-25",
@@ -209,10 +222,9 @@ def _generate_thinking_variants():
     thinking_models = []
     base_model_with_variance = [model for model in BASE_MODELS if "gemini-2.5-flash-image" not in model["name"]]
     for model in base_model_with_variance:
-        # Only add thinking variants for models that support content generation
-        # and contain "gemini-2.5-flash", "gemini-2.5-pro", or "gemini-3" in their name
+        # Check for flash, pro, or gemini-3 generally
         if ("generateContent" in model["supportedGenerationMethods"] and
-            ("gemini-2.5-flash" in model["name"] or "gemini-2.5-pro" in model["name"] or "gemini-3" in model["name"])):
+            ("flash" in model["name"] or "pro" in model["name"] or "gemini-3" in model["name"])):
             
             # Add -nothinking variant
             nothinking_variant = model.copy()
@@ -234,10 +246,8 @@ def _generate_combined_variants():
     """Generate combined search and thinking variants."""
     combined_models = []
     for model in BASE_MODELS:
-        # Only add combined variants for models that support content generation
-        # and contain "gemini-2.5-flash", "gemini-2.5-pro", or "gemini-3" in their name
         if ("generateContent" in model["supportedGenerationMethods"] and
-            ("gemini-2.5-flash" in model["name"] or "gemini-2.5-pro" in model["name"] or "gemini-3" in model["name"])):
+            ("flash" in model["name"] or "pro" in model["name"] or "gemini-3" in model["name"])):
             
             # search + nothinking
             search_nothinking = model.copy()
@@ -290,13 +300,16 @@ def get_thinking_budget(model_name):
     base_model = get_base_model_name(model_name)
     
     if is_nothinking_model(model_name):
-        if "gemini-2.5-flash" in base_model:
+        if "flash" in base_model:
             return 0  # No thinking for flash
-        elif "gemini-2.5-pro" in base_model or "gemini-3" in base_model:
+        elif "pro" in base_model or "gemini-3" in base_model:
             return 128  # Limited thinking for pro/3
+            
     elif is_maxthinking_model(model_name):
         if "gemini-2.5-flash" in base_model:
             return 24576
+        elif "gemini-3.5-flash" in base_model:
+            return 32768  # Scaled up budget for 3.5 Flash
         elif "gemini-2.5-pro" in base_model:
             return 32768
         elif "gemini-3.1-pro" in base_model:
@@ -313,7 +326,9 @@ def should_include_thoughts(model_name):
     if is_nothinking_model(model_name):
         # For nothinking mode, still include thoughts if it's a pro model
         base_model = get_base_model_name(model_name)
-        return "gemini-2.5-pro" in base_model or "gemini-3" in base_model
+        if "flash" in base_model:
+            return False
+        return "pro" in base_model or "gemini-3" in base_model
     else:
         # For all other modes, include thoughts
         return True
