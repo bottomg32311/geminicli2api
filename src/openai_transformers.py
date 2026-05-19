@@ -22,7 +22,7 @@ from .config import (
 # --- NEW BOUNCER FUNCTION TO FILTER BROKEN/JUNK IMAGES ---
 def is_valid_gemini_image(mime_type: str, base64_data: str) -> bool:
     """Helper function to filter out broken, unsupported, or junk 1x1 pixel images."""
-    valid_mimes =["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"]
+    valid_mimes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"]
     
     # 1. Must be a format Gemini actually supports (Blocks SVGs and weird web formats)
     if not any(mime_type.lower().startswith(v) for v in valid_mimes):
@@ -40,7 +40,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
     """
     Transform an OpenAI chat completion request to Gemini format.
     """
-    contents =[]
+    contents = []
     
     # Process each message in the conversation
     for message in openai_request.messages:
@@ -54,7 +54,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         
         # Handle different content types (string vs list of parts)
         if isinstance(message.content, list):
-            parts =[]
+            parts = []
             for part in message.content:
                 if part.get("type") == "text":
                     text_value = part.get("text", "") or ""
@@ -122,7 +122,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         else:
             # Simple text content; extract Markdown images (data URIs) into inline image parts
             text = message.content or ""
-            parts =[]
+            parts = []
             pattern = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
             last_idx = 0
             for m in pattern.finditer(text):
@@ -169,7 +169,7 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
         generation_config["maxOutputTokens"] = openai_request.max_tokens
     if openai_request.stop is not None:
         if isinstance(openai_request.stop, str):
-            generation_config["stopSequences"] =[openai_request.stop]
+            generation_config["stopSequences"] = [openai_request.stop]
         elif isinstance(openai_request.stop, list):
             generation_config["stopSequences"] = openai_request.stop
     if openai_request.frequency_penalty is not None:
@@ -205,9 +205,9 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
             if reasoning_effort:
                 base_model = get_base_model_name(openai_request.model)
                 if reasoning_effort == "minimal":
-                    if "gemini-2.5-flash" in base_model:
+                    if "flash" in base_model:
                         thinking_budget = 0
-                    elif "gemini-2.5-pro" in base_model or "gemini-3" in base_model:
+                    elif "pro" in base_model or "gemini-3" in base_model:
                         thinking_budget = 128
                 elif reasoning_effort == "low":
                     thinking_budget = 1000
@@ -216,6 +216,8 @@ def openai_request_to_gemini(openai_request: OpenAIChatCompletionRequest) -> Dic
                 elif reasoning_effort == "high":
                     if "gemini-2.5-flash" in base_model:
                         thinking_budget = 24576
+                    elif "gemini-3.5-flash" in base_model:
+                        thinking_budget = 32768
                     elif "gemini-2.5-pro" in base_model:
                         thinking_budget = 32768
                     elif "gemini-3.1-pro" in base_model:
@@ -238,15 +240,15 @@ def gemini_response_to_openai(gemini_response: Dict[str, Any], model: str) -> Di
     """
     Transform a Gemini API response to OpenAI chat completion format.
     """
-    choices =[]
+    choices = []
     
-    for candidate in gemini_response.get("candidates",[]):
+    for candidate in gemini_response.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
         if role == "model":
             role = "assistant"
         
         parts = candidate.get("content", {}).get("parts", [])
-        content_parts =[]
+        content_parts = []
         reasoning_content = ""
         
         for part in parts:
@@ -296,13 +298,13 @@ def gemini_stream_chunk_to_openai(gemini_chunk: Dict[str, Any], model: str, resp
     """
     choices = []
     
-    for candidate in gemini_chunk.get("candidates",[]):
+    for candidate in gemini_chunk.get("candidates", []):
         role = candidate.get("content", {}).get("role", "assistant")
         if role == "model":
             role = "assistant"
         
         parts = candidate.get("content", {}).get("parts", [])
-        content_parts =[]
+        content_parts = []
         reasoning_content = ""
         
         for part in parts:
